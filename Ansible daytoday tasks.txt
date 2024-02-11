@@ -1,0 +1,173 @@
+1)copy files local to remote
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Copy a new ntp configuration file and back up the original, if it differs
+      copy:
+        src: ./ntp.conf
+        dest: /etc/ntp.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+2) configure cron job
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Deploy cron job
+      cron:
+        name: "Set rsync job"
+        user: root
+        minute: "5"
+        hour: "4"
+        job: "rsync -avz /path/to/folder1 /path/to/folder1 2>&1"
+
+3) manage disks and filesystems
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Create a partition
+      parted:
+        device: /dev/sdb
+        number: 1
+        part_end: "100%"
+        state: present
+    - name: Format new partition
+      filesystem:
+        fstype: ext4
+        dev: /dev/sdb1
+    - name: Create mount directory
+      file:
+        path: /data
+        state: directory
+    - name: Mount partition
+      mount:
+        path: /data
+        src: /dev/sdb1
+        fstype: ext4
+        state: mounted
+
+4) collect server log
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+  
+    - name: Find logs
+      find:
+        paths: /var/log/
+        patterns: '*.log'
+        recurse: yes
+      register: _logs
+
+    - name: Fetch logs
+      fetch:
+        src: "{{ item.path }}"
+        dest: /tmp/logs
+      with_items: "{{ _logs.files }}"
+
+5) Install or remov epackages
+
+---
+- hosts: ubuntu
+  gather_facts: no
+  tasks:
+    - name: Install lsof utility
+      apt:
+        pkg: lsof
+        state: latest
+      sudo: yes
+    - name: Remove ARP Scan utility
+      apt:
+        pkg: arp-scan
+        state: absent
+      sudo: yes
+      
+
+6) manage users
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - group:
+        gid: 12310
+        name: groupA
+        state: present
+    - group:
+        gid: 12311
+        name: groupB
+        state: present
+    - user:
+        name: user1
+        state: absent
+    - user:
+        name: user2
+        uid: 12427
+        shell: /bin/false
+        password_lock: yes
+        groups: groupA, groupB
+
+7)manage service
+
+---
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Restart ssh daemon
+      service:
+        name: ssh
+        state: restarted
+    - name: Restart sssd daemon
+      service:
+        name: sssd
+        state: stopped
+    - name: Restart httpd daemon
+      service:
+        name: httpd
+        state: started
+
+8) Rebbot servers and wait for complete
+
+---
+  - name: Patch the server and Reboot
+    hosts: app
+    tasks:
+      - name: Patch the server
+        become: yes
+        become_user: root
+        tags: Patch
+        shell: "yum -y update"
+        register: patchresult
+
+      - name: Reboot the server
+        tags: reboot
+        become: yes
+        become_user: root
+        shell: "sleep 5 && reboot"
+        async: 1
+        poll: 0
+    
+      - name: Wait for the reboot and reconnect 
+        wait_for:
+          port: 22
+          host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
+          search_regex: OpenSSH
+          delay: 10
+          timeout: 60
+        connection: local
+
